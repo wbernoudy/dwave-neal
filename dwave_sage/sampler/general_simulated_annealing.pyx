@@ -13,10 +13,13 @@ cdef extern from "cpu_sa.h":
             vector[int] &, # coupler ends
             vector[double] &, # coupler weights
             vector[double] &, # beta schedule
-            unsigned long long) # seed
+            unsigned long long, # seed
+            const int, # number of intermediate samples
+            char*) # array for all the intermediate states
 
 def simulated_annealing(num_samples, h, coupler_starts, coupler_ends, 
-                        coupler_weights, beta_schedule, seed):
+                        coupler_weights, beta_schedule, seed,
+                        n_intermediate_states=0):
     """Wraps `general_simulated_annealing` from `cpu_sa.cpp`. Accepts
     an Ising problem defined on a general graph and returns samples
     using simulated annealing.
@@ -73,12 +76,25 @@ def simulated_annealing(num_samples, h, coupler_starts, coupler_ends,
     cdef np.ndarray[char, ndim=1, mode="c"] states_numpy = \
             np.empty(num_samples*num_vars, dtype="b")
     cdef char* states = &states_numpy[0]
+
+    cdef np.ndarray[char, ndim=1, mode="c"] intermediate_states_array = \
+            np.empty(num_samples*n_intermediate_states*num_vars, dtype="b")
+    cdef char* intermediate_states = NULL
+    if n_intermediate_states > 0:
+        intermediate_states = &intermediate_states_array[0]
     
     energies = general_simulated_annealing(states, num_samples, h, 
                                            coupler_starts, coupler_ends, 
                                            coupler_weights, beta_schedule, 
-                                           seed)
+                                           seed, n_intermediate_states,
+                                           intermediate_states)
 
     annealed_states = states_numpy.reshape((num_samples, num_vars))
+    reshaped_intermediate_states = intermediate_states_array.reshape(
+                (num_samples, n_intermediate_states, num_vars))
 
-    return annealed_states, np.asarray(energies)
+    return {
+            "samples": annealed_states, 
+            "energies": np.asarray(energies),
+            "intermediate_states": reshaped_intermediate_states,
+            }

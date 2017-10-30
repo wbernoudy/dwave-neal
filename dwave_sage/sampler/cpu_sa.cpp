@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <ctime>
+#include <cstring>
 #include <vector>
 #include <iostream>
 #include <stdexcept>
@@ -10,13 +11,13 @@
 /**
  * xorshift128+ as defined https://en.wikipedia.org/wiki/Xorshift#xorshift.2B
  */
-#define FASTRAND(rand) do {                       \
+#define FASTRAND(rand_val) do {                   \
     uint64_t x = rng_state[0];                    \
     uint64_t const y = rng_state[1];              \
     rng_state[0] = y;                             \
     x ^= x << 23;                                 \
     rng_state[1] = x ^ y ^ (x >> 17) ^ (y >> 26); \
-    rand = rng_state[1] + y;                      \
+    rand_val = rng_state[1] + y;                  \
 } while (0)
 
 #define RANDMAX ((uint64_t)-1L)
@@ -74,10 +75,12 @@ double get_flip_energy(int var, char *state, vector<double> & h,
  * @return Nothing, but `state` now contains the result of the run.
  */
 void simulated_annealing_run(char* state, vector<double>& h, 
-                               vector<int>& degrees, 
-                               vector<vector<int>>& neighbors, 
-                               vector<vector<double>>& neighbour_couplings,
-                               vector<double> beta_schedule) {
+                             vector<int>& degrees, 
+                             vector<vector<int>>& neighbors, 
+                             vector<vector<double>>& neighbour_couplings,
+                             vector<double> beta_schedule,
+                             int n_intermediate_states,
+                             char* all_intermediate_states) {
     const int num_vars = h.size();
     const int num_sweeps = beta_schedule.size();
 
@@ -86,16 +89,16 @@ void simulated_annealing_run(char* state, vector<double>& h,
     double *delta_energy = (double*)malloc(num_vars * sizeof(double));
 
     // start with a random state
-    uint64_t rand; // this will hold the value of the rng
+    uint64_t rand_val; // this will hold the value of the rng
     for (int var = 0; var < num_vars; var++) {
         int spin_mod = var % 64;
         if (spin_mod == 0) {
             // get a new 64 bit number
-            FASTRAND(rand);
+            FASTRAND(rand_val);
         }
-        // rand >> spin_mod) & 1 gets a bit from the random number
+        // rand_val >> spin_mod) & 1 gets a bit from the random number
         // 2*bit - 1 turns the random bit into +-1
-        state[var] = 2*((rand >> spin_mod) & 1) - 1;
+        state[var] = 2*((rand_val >> spin_mod) & 1) - 1;
     }
 
     // build the delta_energy array by getting the delta energy for each
@@ -104,6 +107,10 @@ void simulated_annealing_run(char* state, vector<double>& h,
         delta_energy[var] = get_flip_energy(var, state, h, degrees, 
                                              neighbors, neighbour_couplings);
     }
+
+    // setup for intermediate states
+    int intermediate_state_counter = 0;
+    const int intermediate_skip_states = num_sweeps/(n_intermediate_states+1);
 
     bool flip_spin;
     // perform the sweeps
@@ -130,10 +137,10 @@ void simulated_annealing_run(char* state, vector<double>& h,
                 flip_spin = true;
             }
             else {
-                // get a random number, storing it in rand
-                FASTRAND(rand); 
+                // get a random number, storing it in rand_val
+                FASTRAND(rand_val); 
                 // accept the flip if exp(delta energy * beta) > random(0, 1)
-                if (exp(-delta_energy[var]*beta) * RANDMAX > rand) {
+                if (exp(-delta_energy[var]*beta) * RANDMAX > rand_val) {
                     flip_spin = true;
                 }
             }
@@ -162,6 +169,13 @@ void simulated_annealing_run(char* state, vector<double>& h,
                 state[var] *= -1;
                 delta_energy[var] *= -1;
             }
+        }
+
+        if ((sweep > 0) && (intermediate_state_counter < n_intermediate_states) && (sweep % intermediate_skip_states == 0)) {
+            // save this intermediate state
+            memcpy(all_intermediate_states + (intermediate_state_counter*num_vars),
+                    state, num_vars*sizeof(char));
+            intermediate_state_counter++;
         }
     }
 
@@ -221,7 +235,9 @@ vector<double> general_simulated_annealing(char* states, const int num_samples,
                                            vector<int> coupler_ends, 
                                            vector<double> coupler_weights,
                                            vector<double> beta_schedule,
-                                           uint64_t seed) {
+                                           uint64_t seed,
+                                           const int n_intermediate_states,
+                                           char* all_intermediate_states) {
 
     // TODO 
     // assert len(states) == num_samples*num_vars*sizeof(char)
@@ -276,6 +292,10 @@ vector<double> general_simulated_annealing(char* states, const int num_samples,
         degrees[v]++;
     }
 
+    // if not saving intermediate states, we can set this pointer to NULL as
+    // it shouldn't be used
+    char *intermediate_states = NULL;
+
     // get the simulated annealing samples
     for (int sample = 0; sample < num_samples; sample++) {
         // states is a giant spin array that will hold the resulting states for
@@ -284,8 +304,13 @@ vector<double> general_simulated_annealing(char* states, const int num_samples,
         char *state = states + sample*num_vars;
         // then do the actual sample. this function will modify state, storing
         // the sample there
+        if (n_intermediate_states > 0) {
+            intermediate_states = all_intermediate_states +
+                sample*n_intermediate_states*num_vars;
+        }
         simulated_annealing_run(state, h, degrees, 
-                                neighbors, neighbour_couplings, beta_schedule);
+                                neighbors, neighbour_couplings, beta_schedule,
+                                n_intermediate_states, intermediate_states);
         // compute the energy of the sample and store it in `energies`
         energies[sample] = get_state_energy(state, h, coupler_starts, 
                                          coupler_ends, coupler_weights);
