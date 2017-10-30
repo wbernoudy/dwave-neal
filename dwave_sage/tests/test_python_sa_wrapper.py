@@ -18,6 +18,18 @@ class TestSA(unittest.TestCase):
         return (num_samples, h, coupler_starts, coupler_ends, coupler_weights,
                 beta_schedule, seed)
 
+    def _random_pm1_problem(self, num_variables=10, num_samples=100,
+                        num_sweeps=1000):
+        h = np.random.choice((-1, 1), num_variables)
+        coupler_starts, coupler_ends = zip(*((u,v) for u in range(num_variables) for v in range(u, num_variables)))
+        coupler_weights = np.random.choice((-1,1), len(coupler_starts))
+
+        beta_schedule = np.linspace(0.01, 3, num=num_sweeps)
+        seed = 1
+
+        return (num_samples, h, coupler_starts, coupler_ends, coupler_weights,
+                beta_schedule, seed)
+
     def test_submit_problem(self):
         num_variables, num_samples = 10, 100
         problem = self._sample_fm_problem(num_variables=num_variables,
@@ -25,10 +37,13 @@ class TestSA(unittest.TestCase):
 
         result = dwave_sage_sampler.simulated_annealing(*problem)
 
-        self.assertTrue(len(result) == 2,
-                "Sampler should return two values")
+        self.assertIsInstance(result, dict, "Sampler should return a dict")
 
-        samples, energies = result
+        for key in ("samples", "energies", "intermediate_states"):
+            self.assertTrue(key in result,
+                    "Key `{}` not found in dict sampler returned")
+
+        samples, energies = result["samples"], result["energies"]
 
         # ensure samples are all valid samples
         self.assertTrue(type(samples) is np.ndarray)
@@ -51,7 +66,8 @@ class TestSA(unittest.TestCase):
         num_variables = 5
         problem = self._sample_fm_problem(num_variables=num_variables)
         
-        samples, energies = dwave_sage_sampler.simulated_annealing(*problem)
+        result = dwave_sage_sampler.simulated_annealing(*problem)
+        samples, energies = result["samples"], result["energies"]
 
         ground_state = [1]*num_variables
         ground_energy = -(num_variables+3)*num_variables/2
@@ -76,8 +92,10 @@ class TestSA(unittest.TestCase):
         previous_samples = []
         for seed in (1, 40, 235, 152436, 3462354, 92352355):
             seeded_problem = problem[:-1] + (seed,)
-            samples0, _ = dwave_sage_sampler.simulated_annealing(*seeded_problem)
-            samples1, _ = dwave_sage_sampler.simulated_annealing(*seeded_problem)
+            result0 = dwave_sage_sampler.simulated_annealing(*seeded_problem)
+            result1 = dwave_sage_sampler.simulated_annealing(*seeded_problem)
+            samples0 = result0["samples"]
+            samples1 = result1["samples"]
 
             self.assertTrue(np.array_equal(samples0, samples1),
                     "Same seed returned different results")
@@ -87,6 +105,12 @@ class TestSA(unittest.TestCase):
                     "Different seed returned same results")
 
             previous_samples.append(samples0)
+
+    def test_intermediate_states(self):
+        problem = self._random_pm1_problem()
+
+        result = dwave_sage_sampler.simulated_annealing(*problem,
+                n_intermediate_states=10)
 
 if __name__ == "__main__":
     unittest.main()
