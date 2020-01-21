@@ -500,6 +500,20 @@ class TestHeuristicResponse(unittest.TestCase):
         self.assertLess(response_energy, threshold, ("response_energy, {}, exceeds "
             "threshold").format(response_energy))
 
+    def test_cybqm_qubo(self):
+        random = np.random.RandomState(0)
+        n = 100
+        sampler = Neal()
+        bqm = dimod.AdjArrayBQM(random.uniform(-1, 1, size=(n, n)), dimod.BINARY)
+        sampler.sample(bqm)
+
+    def test_cybqm_qubo(self):
+        random = np.random.RandomState(0)
+        n = 100
+        sampler = Neal()
+        bqm = dimod.AdjArrayBQM(random.uniform(-1, 1, size=(n, n)), dimod.SPIN)
+        sampler.sample(bqm)
+
 
 if __name__ == "__main__":
     unittest.main()

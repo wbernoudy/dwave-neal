@@ -253,12 +253,13 @@ class SimulatedAnnealingSampler(dimod.Sampler):
             raise TypeError("'interrupt_function' should be a callable")
 
         num_variables = len(_bqm)
+        _bqm_ising = _bqm.change_vartype(dimod.SPIN, inplace=False)
 
         # get the Ising linear biases
-        linear = _bqm.spin.linear
+        linear = _bqm_ising.linear
         h = [linear[v] for v in range(num_variables)]
 
-        quadratic = _bqm.spin.quadratic
+        quadratic = _bqm_ising.quadratic
         if len(quadratic) > 0:
             couplers, coupler_weights = zip(*iteritems(quadratic))
             couplers = map(lambda c: (c[0], c[1]), couplers)
@@ -346,7 +347,7 @@ class SimulatedAnnealingSampler(dimod.Sampler):
             num_sweeps_per_beta, beta_schedule,
             seed, numpy_initial_states, interrupt_function)
 
-        off = _bqm.spin.offset
+        off = _bqm_ising.offset
         info = {
             "beta_range": beta_range,
             "beta_schedule_type": beta_schedule_type
